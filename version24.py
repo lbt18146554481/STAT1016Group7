@@ -116,7 +116,7 @@ if st.session_state.current_step == 1:
         with col1:
             fill_method = st.selectbox("Choose Filling Method",
                 options=["Mean 均值填充", "Median 中位数填充", 
-                        "Mode 众数填充", "Given 固定值填充","Delete 删除缺失行"],
+                        "Mode 众数填充", "Given 固定值填充","Delete 删除包含缺失值的行"],
                 index=0
             )
         with col2:
@@ -128,7 +128,7 @@ if st.session_state.current_step == 1:
         if st.button("Fill Blanks"):
             with st.spinner("正在处理缺失值..."):
                 processed_df = st.session_state.raw_data.copy()
-                if fill_method == "删除包含缺失值的行":
+                if fill_method == "Delete 删除包含缺失值的行":
                     original_count = len(processed_df)
                     processed_df = processed_df.dropna()
                     new_count = len(processed_df)
@@ -150,7 +150,7 @@ if st.session_state.current_step == 1:
                     st.success("缺失值填充完成！")
                 st.session_state.processed_data1 = processed_df
 
-                if fill_method == "Delete 删除缺失行":
+                if fill_method == "Delete 删除包含缺失值的行":
                     st.success(f"已删除包含缺失值的{drop_count}行，剩余{new_count}行数据！")
 
             if st.session_state.processed_data1  is not None:
@@ -268,6 +268,9 @@ elif st.session_state.current_step == 2:
     if st.button("应用转换"):
         with st.spinner("处理中..."):
             processed_df = df.copy()
+            if categorical_cols:
+                processed_df.loc[processed_df['生育政策'] == '家庭补助金', '生育政策'] = '税务优惠'
+                processed_df.loc[processed_df['生育政策'] == '带薪产假', '生育政策'] = '育儿补贴'
             if categorical_cols:
                 if encoding_method == "One-Hot 独热编码":
                     encoder = OneHotEncoder(sparse=False)
