@@ -9,11 +9,12 @@ from sklearn.preprocessing import (
     MinMaxScaler,
     LabelEncoder
 )
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, BayesianRidge
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, GradientBoostingRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
+from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.decomposition import PCA
 import os
@@ -23,11 +24,74 @@ from scipy.stats import zscore
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from sklearn.model_selection import GridSearchCV
 from io import BytesIO
+import lightgbm as lgb
+
+# 固定随机种子
+SEED = 42
+np.random.seed(SEED)
+
+# 添加自动滚动函数
+def auto_scroll_to_top():
+    js = '''
+        <script>
+            function scroll() {
+                window.scrollTo(0, 0);
+            }
+            scroll();
+        </script>
+    '''
+    st.markdown(js, unsafe_allow_html=True)
+
+# 导航组件
+def show_navigation():
+    st.markdown("---")
+    col1, col2, col3 = st.columns([5, 1, 1])
+    
+    with col2:
+        if st.session_state.current_step > 1:
+            if st.button("Back", key=f"back_{st.session_state.current_step}"):
+                if st.session_state.current_step == 6:
+                    if "chat_history" in st.session_state:
+                        del st.session_state.chat_history
+                    if "displayed_messages" in st.session_state:
+                        del st.session_state.displayed_messages
+                    if "current_response" in st.session_state:
+                        del st.session_state.current_response
+                    st.session_state.n0 = 0
+                st.session_state.current_step -= 1
+                st.session_state.trained = False
+                st.session_state.show_prediction = False
+                auto_scroll_to_top()
+                st.rerun()
+    
+    with col3:
+        if st.session_state.current_step < 6:
+            btn_disabled = False
+            if st.session_state.current_step == 1:
+                btn_disabled = (st.session_state.processed_data1 is None)
+            elif st.session_state.current_step == 2:
+                btn_disabled = (st.session_state.processed_data2 is None)
+            elif st.session_state.current_step == 3:
+                btn_disabled = not st.session_state.trained
+            elif st.session_state.current_step == 4:
+                btn_disabled = not st.session_state.show_prediction
+            
+            if st.button("Next", 
+                        key=f"next_{st.session_state.current_step}",
+                        disabled=btn_disabled):
+                st.session_state.current_step += 1
+                auto_scroll_to_top()
+                st.rerun()
+        else:
+            if st.button("Restart", key=f"back_{st.session_state.current_step + 1}"):
+                st.session_state.current_step = 0
+                auto_scroll_to_top()
+                st.rerun()
 
 # 初始化会话状态
 if 'current_step' not in st.session_state:
     st.session_state.update({
-        'current_step': 1,
+        'current_step': 0,
         'raw_data': None,
         'processed_data1': None,
         'processed_data2': None,
@@ -47,56 +111,66 @@ if 'current_step' not in st.session_state:
         'outliers': None,
         'num_outliers': None
     })
+    auto_scroll_to_top()
 
-# 固定随机种子
-SEED = 42
-np.random.seed(SEED)
+# 欢迎页面
+if st.session_state.current_step == 0:
+    auto_scroll_to_top()
+    st.markdown('<h1 style="font-size:70px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Birth Rate Prediction Machine</h1>', unsafe_allow_html=True)
+    
+    st.markdown(
+        """
+        <style>
+        .team-title {
+            font-size: 2.5rem;
+            color: #666;
+            margin-bottom: 1.5rem;
+            margin-top: 2rem;
+            font-weight: 500;
+        }
+        .team-members {
+            font-size: 2rem;
+            color: #888;
+            margin-bottom: 3rem;
+        }
+        .stButton > button {
+            font-size: 24px;
+            padding: 15px 30px;
+            background: linear-gradient(45deg, #663399, #9370DB);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            width: 200px;
+            margin: 2rem auto;
+        }
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 51, 153, 0.3);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown('<div class="team-title">Group Members:</div>', unsafe_allow_html=True)
+    st.markdown('<div class="team-members">Gao Shengyuan · Lu Bitong · Shao shenghe · Xu tianjian · Cai kunhuang</div>', unsafe_allow_html=True)
+    
+    if st.button("Start!", use_container_width=False):
+        st.session_state.current_step = 1
+        st.rerun()
 
-# 导航组件
-def show_navigation():
-    st.markdown("---")
-    col1, col2, col3 = st.columns([5, 1, 1])
-    
-    with col2:
-        if st.session_state.current_step > 1:
-            if st.button("Back", key=f"back_{st.session_state.current_step}"):
-                st.session_state.current_step -= 1
-                st.session_state.trained = False
-                st.session_state.show_prediction = False
-                st.rerun()
-    
-    with col3:
-        if st.session_state.current_step < 6:
-            btn_disabled = False
-            if st.session_state.current_step == 1:
-                btn_disabled = (st.session_state.processed_data1 is None)
-            elif st.session_state.current_step == 2:
-                btn_disabled = (st.session_state.processed_data2 is None)
-            elif st.session_state.current_step == 3:
-                btn_disabled = not st.session_state.trained
-            elif st.session_state.current_step == 4:
-                btn_disabled = not st.session_state.show_prediction
-            
-            if st.button("Next", 
-                        key=f"next_{st.session_state.current_step}",
-                        disabled=btn_disabled):
-                st.session_state.current_step += 1
-                st.rerun()
-        else:
-            if st.button("Restart", key=f"back_{st.session_state.current_step + 1}"):
-                st.session_state.current_step = 1
-                st.rerun()
-           
 # 页面配置
 if st.session_state.current_step == 1:
-    st.markdown('<h1 style="font-size:60px; color:lightgray;">Birth Rate Prediction Machine</h1>', unsafe_allow_html=True)
-    st.markdown('<h3 style="font-size:20px; color:lightgray;">Group Mates：Gao Shengyuan/Lu Bitong/Shao shenghe/Xu tianjian/Cai kun huang</h3>', unsafe_allow_html=True)
-
-#---------------------------------- 步骤1：数据上传与缺失处理----------------------------------
-#------------------------------------------------------------------------------------------
-
-if st.session_state.current_step == 1:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step1: Data Cleaning</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step1: Data Cleaning</h1>', unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader("",type=["csv", "xlsx", "xls"])
     
@@ -255,7 +329,15 @@ if st.session_state.current_step == 1:
 #------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 2:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step2: Data Reprosessing</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step2: Data Reprosessing</h1>', unsafe_allow_html=True)
     
     df = st.session_state.processed_data1
     numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
@@ -271,7 +353,6 @@ elif st.session_state.current_step == 2:
             if categorical_cols:
                 processed_df.loc[processed_df['生育政策'] == '家庭补助金', '生育政策'] = '税务优惠'
                 processed_df.loc[processed_df['生育政策'] == '带薪产假', '生育政策'] = '育儿补贴'
-            if categorical_cols:
                 if encoding_method == "One-Hot 独热编码":
                     encoder = OneHotEncoder(sparse=False)
                     encoded = encoder.fit_transform(processed_df[categorical_cols])
@@ -316,7 +397,15 @@ elif st.session_state.current_step == 2:
 #--------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 3:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step3: Model Training</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step3: Model Training</h1>', unsafe_allow_html=True)
 
     df = st.session_state.processed_data2
     if df is None:
@@ -347,34 +436,153 @@ elif st.session_state.current_step == 3:
     with col2:
         model_type = st.selectbox(
             "Choose Model Type",
-            options=["LinearRegression 线性回归", "DecisionTree 决策树", "RandomForest 随机森林", "KNeighbors KNN回归", "SVM 支持向量机"],
+            options=["LinearRegression 线性回归", "DecisionTree 决策树", "RandomForest 随机森林", 
+                    "KNeighbors KNN回归", "SVM 支持向量机", "BayesianRidge 贝叶斯回归",
+                    "AdaBoost 自适应提升", "XGBoost 极限梯度提升", 
+                    "LightGBM 轻量梯度提升", "GradientBoosting 梯度提升"],
             index=0
         )
         train_size = st.slider("Train-Test Split", 0.5, 0.9, 0.8, step=0.05)
 
-        # 超参数调优
-        tuning_enabled = st.checkbox("调参")
+# -------------------------------------------超参数调优-------------------------------------------
+
+        tuning_enabled = st.checkbox("手动调参")
+        auto_tuning = st.checkbox("自动调参（网格搜索）") if not tuning_enabled else False
 
         if tuning_enabled:
             if model_type == "DecisionTree 决策树":
+                max_depth = st.slider("Max Depth", 1, 20, 3)
+                min_samples_split = st.slider("Min Samples Split", 2, 10, 2)
+                model_params = {
+                    'max_depth': max_depth,
+                    'min_samples_split': min_samples_split
+                }
+            elif model_type == "RandomForest 随机森林":
+                n_estimators = st.slider("Number of Trees", 10, 200, 50)
+                max_depth = st.slider("Max Depth", 1, 20, 5)
+                model_params = {
+                    'n_estimators': n_estimators,
+                    'max_depth': max_depth
+                }
+            elif model_type == "AdaBoost 自适应提升":
+                n_estimators = st.slider("Number of Estimators", 10, 200, 50)
+                learning_rate = st.slider("Learning Rate", 0.01, 2.0, 1.0, step=0.01)
+                model_params = {
+                    'n_estimators': n_estimators,
+                    'learning_rate': learning_rate
+                }
+            elif model_type == "XGBoost 极限梯度提升":
+                n_estimators = st.slider("Number of Estimators", 10, 200, 50)
+                max_depth = st.slider("Max Depth", 1, 20, 3)
+                learning_rate = st.slider("Learning Rate", 0.01, 1.0, 0.1, step=0.01)
+                model_params = {
+                    'n_estimators': n_estimators,
+                    'max_depth': max_depth,
+                    'learning_rate': learning_rate
+                }
+            elif model_type == "KNeighbors KNN回归":
+                n_neighbors = st.slider("Number of Neighbors", 1, 20, 3)
+                weights = st.selectbox("Weights", options=["uniform", "distance"])
+                model_params = {
+                    'n_neighbors': n_neighbors,
+                    'weights': weights
+                }
+            elif model_type == "SVM 支持向量机":
+                C = st.slider("C (Regularization)", 0.1, 10.0, 1.0, step=0.1)
+                kernel = st.selectbox("Kernel", options=["linear", "poly", "rbf", "sigmoid"])
+                model_params = {
+                    'C': C,
+                    'kernel': kernel
+                }
+            elif model_type == "BayesianRidge 贝叶斯回归":
+                alpha_1 = st.slider("Alpha 1 (noise precision)", 1e-7, 1e-5, 1e-6, format="%.0e")
+                alpha_2 = st.slider("Alpha 2 (weights precision)", 1e-7, 1e-5, 1e-6, format="%.0e")
+                lambda_1 = st.slider("Lambda 1 (noise precision)", 1e-7, 1e-5, 1e-6, format="%.0e")
+                lambda_2 = st.slider("Lambda 2 (weights precision)", 1e-7, 1e-5, 1e-6, format="%.0e")
+                model_params = {
+                    'alpha_1': alpha_1,
+                    'alpha_2': alpha_2,
+                    'lambda_1': lambda_1,
+                    'lambda_2': lambda_2
+                }
+            elif model_type == "LightGBM 轻量梯度提升":
+                n_estimators = st.slider("Number of Estimators", 10, 200, 50)
+                max_depth = st.slider("Max Depth", 1, 20, 3)
+                learning_rate = st.slider("Learning Rate", 0.01, 1.0, 0.1, step=0.01)
+                num_leaves = st.slider("Number of Leaves", 2, 50, 31)
+                model_params = {
+                    'n_estimators': n_estimators,
+                    'max_depth': max_depth,
+                    'learning_rate': learning_rate,
+                    'num_leaves': num_leaves
+                }
+            elif model_type == "GradientBoosting 梯度提升":
+                n_estimators = st.slider("Number of Estimators", 10, 200, 50)
+                max_depth = st.slider("Max Depth", 1, 20, 3)
+                learning_rate = st.slider("Learning Rate", 0.01, 1.0, 0.1, step=0.01)
+                min_samples_split = st.slider("Min Samples Split", 2, 10, 2)
+                model_params = {
+                    'n_estimators': n_estimators,
+                    'max_depth': max_depth,
+                    'learning_rate': learning_rate,
+                    'min_samples_split': min_samples_split
+                }
+            else:
+                st.warning("该模型不适用调参")
+                model_params = {}
+
+        elif auto_tuning:
+            if model_type == "DecisionTree 决策树":
                 param_grid = {
-                    'max_depth': st.slider("Max Depth", 1, 20, (3, 10)),
-                    'min_samples_split': st.slider("Min Samples Split", 2, 10, (2, 5))
+                    'max_depth': range(3, 11),
+                    'min_samples_split': range(2, 6)
                 }
             elif model_type == "RandomForest 随机森林":
                 param_grid = {
-                    'n_estimators': st.slider("Number of Trees", 10, 200, (50, 100)),
-                    'max_depth': st.slider("Max Depth", 1, 20, (5, 15))
+                    'n_estimators': range(50, 101, 10),
+                    'max_depth': range(5, 16)
+                }
+            elif model_type == "AdaBoost 自适应提升":
+                param_grid = {
+                    'n_estimators': [50, 100, 150],
+                    'learning_rate': [0.01, 0.1, 1.0]
+                }
+            elif model_type == "XGBoost 极限梯度提升":
+                param_grid = {
+                    'n_estimators': [50, 100, 150],
+                    'max_depth': [3, 5, 7],
+                    'learning_rate': [0.01, 0.1, 0.3]
                 }
             elif model_type == "KNeighbors KNN回归":
                 param_grid = {
-                    'n_neighbors': st.slider("Number of Neighbors", 1, 20, (3, 5)),
-                    'weights': st.selectbox("Weights", options=["uniform", "distance"])
+                    'n_neighbors': range(3, 6),
+                    'weights': ["uniform", "distance"]
                 }
             elif model_type == "SVM 支持向量机":
                 param_grid = {
-                    'C': st.slider("C (Regularization)", 0.1, 10.0, (1.0, 2.0), step=0.1),
-                    'kernel': st.selectbox("Kernel", options=["linear", "poly", "rbf", "sigmoid"])
+                    'C': [0.1, 1.0, 2.0],
+                    'kernel': ["linear", "poly", "rbf", "sigmoid"]
+                }
+            elif model_type == "BayesianRidge 贝叶斯回归":
+                param_grid = {
+                    'alpha_1': [1e-7, 1e-6, 1e-5],
+                    'alpha_2': [1e-7, 1e-6, 1e-5],
+                    'lambda_1': [1e-7, 1e-6, 1e-5],
+                    'lambda_2': [1e-7, 1e-6, 1e-5]
+                }
+            elif model_type == "LightGBM 轻量梯度提升":
+                param_grid = {
+                    'n_estimators': [50, 100, 150],
+                    'max_depth': [3, 5, 7],
+                    'learning_rate': [0.01, 0.1, 0.3],
+                    'num_leaves': [20, 31, 40]
+                }
+            elif model_type == "GradientBoosting 梯度提升":
+                param_grid = {
+                    'n_estimators': [50, 100, 150],
+                    'max_depth': [3, 5, 7],
+                    'learning_rate': [0.01, 0.1, 0.3],
+                    'min_samples_split': [2, 4, 6]
                 }
             else:
                 st.warning("该模型不适用调参")
@@ -398,18 +606,33 @@ elif st.session_state.current_step == 3:
                         "DecisionTree 决策树": DecisionTreeRegressor(random_state=SEED),
                         "RandomForest 随机森林": RandomForestRegressor(random_state=SEED),
                         "KNeighbors KNN回归": KNeighborsRegressor(),
-                        "SVM 支持向量机": SVR()
+                        "SVM 支持向量机": SVR(),
+                        "BayesianRidge 贝叶斯回归": BayesianRidge(),
+                        "AdaBoost 自适应提升": AdaBoostRegressor(random_state=SEED),
+                        "XGBoost 极限梯度提升": XGBRegressor(random_state=SEED),
+                        "LightGBM 轻量梯度提升": lgb.LGBMRegressor(random_state=SEED),
+                        "GradientBoosting 梯度提升": GradientBoostingRegressor(random_state=SEED)
                     }
-                    model = model_map[model_type]
+                    base_model = model_map[model_type]
 
-                    # 超参数调优
-                    if tuning_enabled and param_grid:
-                        grid_search = GridSearchCV(model, param_grid, cv=3, scoring='r2', verbose=1)
+                    # 根据用户选择决定是否使用调参
+                    if tuning_enabled:
+                        # 使用用户设定的参数
+                        if model_type == "BayesianRidge 贝叶斯回归":
+                            model = type(base_model)(**model_params)
+                        else:
+                            model = type(base_model)(**model_params, random_state=SEED if hasattr(base_model, 'random_state') else None)
+                        model.fit(X_train, y_train)
+                        st.success(f"使用参数: {model_params}")
+                    elif auto_tuning and param_grid:
+                        # 使用网格搜索
+                        grid_search = GridSearchCV(base_model, param_grid, cv=3, scoring='r2', verbose=1)
                         grid_search.fit(X_train, y_train)
                         model = grid_search.best_estimator_
-                        best_params = grid_search.best_params_
-                        st.success(f"最佳超参数: {best_params}")
+                        st.success(f"最佳超参数: {grid_search.best_params_}")
                     else:
+                        # 使用默认参数
+                        model = base_model
                         model.fit(X_train, y_train)
 
                     y_pred = model.predict(X_test)
@@ -439,7 +662,15 @@ elif st.session_state.current_step == 3:
 #-------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 4:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step4: Data Visualization</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step4: Data Visualization</h1>', unsafe_allow_html=True)
     
     if not st.session_state.get('model'):
         st.error("模型未训练，请返回第三步")
@@ -565,7 +796,15 @@ elif st.session_state.current_step == 4:
 #-------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 5:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step5: Model Prediction</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step5: Model Prediction</h1>', unsafe_allow_html=True)
     
     if not st.session_state.get('model'):
         st.error("模型未训练，请返回第三步")
@@ -618,166 +857,188 @@ elif st.session_state.current_step == 5:
 #---------------------------------------------------------------------------------------------
     
 elif st.session_state.current_step == 6:
-    st.markdown('<h1 style="font-size:50px; color:gray;">Step6: Data Analysis</h1>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step6: Data Analysis</h1>', unsafe_allow_html=True)
+    
     # 初始化对话历史记录
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    if "displayed_messages" not in st.session_state:
+        st.session_state.displayed_messages = []
+    if "current_response" not in st.session_state:
+        st.session_state.current_response = None
+
     # 检查必要状态
     if not st.session_state.get('model'):
         st.error("模型未训练，请返回第三步")
         st.stop()
 
-    greating = 'Hi! I am your stat1016 assistant and I can give you analysis based on the \ndata you just produced.'
-    
-    if st.session_state.n0 == 0:
-     placeholder = st.empty()  # 创建一个占位符
-     displayed_text = ""       # 用于逐步显示的变量
-     st.session_state.n0 = 1
-     for char in greating:
-                   displayed_text += char
-                   placeholder.markdown(f"```markdown\n{displayed_text}\n```")
-                   time.sleep(0.0125)
-    else:
-        st.markdown(f"```markdown\n{greating}\n```")
-    time.sleep(0.8)
-    if st.button("Please help me to analyze the model"):
-       with st.spinner("thinking..."):
-        try:
-                 # 构建数据摘要
+    # 创建一个容器来显示所有对话内容
+    chat_container = st.container()
+
+    # 在对话容器中显示内容
+    with chat_container:
+        # 显示问候语
+        if st.session_state.n0 == 0:
+            greeting = 'Hi! I am your stat1016 assistant and I can give you analysis based on the \ndata you just produced.'
+            placeholder = st.empty()
+            displayed_text = ""
+            for char in greeting:
+                displayed_text += char
+                placeholder.markdown(f"**助手回答：**\n```\n{displayed_text}\n```")
+                time.sleep(0.0125)
+            st.session_state.n0 = 1
+            st.markdown("---")
+
+        # 显示历史对话
+        if len(st.session_state.displayed_messages) > 0:
+            for msg in st.session_state.displayed_messages[:-1]:
+                with st.container():
+                    if msg['role'] == 'user':
+                        st.markdown(f"**您的问题：**\n```\n{msg['content']}\n```")
+                    else:
+                        st.markdown(f"**助手回答：**\n```\n{msg['content']}\n```")
+                    st.markdown("---")
+
+            # 显示最新的对话（如果存在）
+            if len(st.session_state.displayed_messages) > 0:
+                latest_msg = st.session_state.displayed_messages[-1]
+                with st.container():
+                    if latest_msg['role'] == 'user':
+                        st.markdown(f"**您的问题：**\n```\n{latest_msg['content']}\n```")
+                    else:
+                        placeholder = st.empty()
+                        displayed_text = ""
+                        for char in latest_msg['content']:
+                            displayed_text += char
+                            placeholder.markdown(f"**助手回答：**\n```\n{displayed_text}\n```")
+                            time.sleep(0.02)
+                    st.markdown("---")
+
+    # 第一步：模型分析部分
+    analyze_button = st.button("Please help me analyze the model")
+
+    if analyze_button:
+        with st.spinner("thinking..."):
+            try:
+                # 构建数据摘要
                 data_summary = {
                     "数据概况": {
-                    "样本数量": len(st.session_state.processed_data2),
-                    "特征数量": len(st.session_state.features),
-                    "特征变量": st.session_state.features,
-                    "目标变量": st.session_state.target
+                        "样本数量": len(st.session_state.processed_data2),
+                        "特征数量": len(st.session_state.features),
+                        "特征变量": st.session_state.features,
+                        "目标变量": st.session_state.target
                     },
                     "模型信息": {
-                    "模型类型": st.session_state.model_type,
-                    "MAE": round(st.session_state.metrics['MAE'], 3),
-                    "R2": round(st.session_state.metrics['R2'], 3)
+                        "模型类型": st.session_state.model_type,
+                        "MAE": round(st.session_state.metrics['MAE'], 3),
+                        "R2": round(st.session_state.metrics['R2'], 3)
                     },
-                   "特征重要性": (
-                    dict(zip(
-                    st.session_state.features,
-                    np.squeeze(
-                   # 树模型使用 feature_importances_，线性模型使用 coef_
-                   st.session_state.model.feature_importances_ if hasattr(st.session_state.model, 'feature_importances_') 
-                   else st.session_state.model.coef_
-                   ).round(3)
-                   )) 
-                   if (hasattr(st.session_state.model, 'feature_importances_') or hasattr(st.session_state.model, 'coef_'))
-                   and len(st.session_state.features) == len(np.squeeze(
-                   st.session_state.model.feature_importances_ if hasattr(st.session_state.model, 'feature_importances_') 
-                   else st.session_state.model.coef_
-                   ))
-                   else "无法计算特征重要性"
-                   )
-                   }
-    
- #-------------------------------构建提示词1--------------------------------
+                    "特征重要性": (
+                        dict(zip(
+                            st.session_state.features,
+                            np.squeeze(
+                                st.session_state.model.feature_importances_ if hasattr(st.session_state.model, 'feature_importances_')
+                                else st.session_state.model.coef_
+                            ).round(3)
+                        ))
+                        if (hasattr(st.session_state.model, 'feature_importances_') or hasattr(st.session_state.model, 'coef_'))
+                        and len(st.session_state.features) == len(np.squeeze(
+                            st.session_state.model.feature_importances_ if hasattr(st.session_state.model, 'feature_importances_')
+                            else st.session_state.model.coef_
+                        ))
+                        else "无法计算特征重要性"
+                    )
+                }
 
                 message = f"""
-                   你是一个专业的数据科学家，你收集了可能影响一个国家人口增长率的数据，并用这些数据训练了模型，然后给模型输入新的数据来预测人口增长率
-                   请根据以下分析请求和提供的数据摘要，用中文给出专业分析报告,字数大概300多字：
+                你是一个专业的数据科学家，你收集了可能影响一个国家人口增长率的数据，并用这些数据训练了模型，然后给模型输入新的数据来预测人口增长率
+                请根据以下分析请求和提供的数据摘要，用中文给出专业分析报告,字数大概300多字：
 
-                   分析要求：
-                   1. 解读数据特征与目标变量({st.session_state.target})的关系
-                   2. 评估当前模型性能并提出改进建议
-                   3. 分析可能影响预测结果准确性的潜在因素
-                   4. 给出可操作的政策建议（如存在政策相关特征）
-    
-                   数据摘要：
-                   {data_summary}
-                   """
-                #储存历史记录
-                st.session_state.chat_history.append({"role": "user", "content": message})
+                分析要求：
+                1. 解读数据特征与目标变量({st.session_state.target})的关系
+                2. 评估当前模型性能并提出改进建议
+                3. 分析可能影响预测结果准确性的潜在因素
+                4. 给出可操作的政策建议（如存在政策相关特征）
+
+                数据摘要：
+                {data_summary}
+                """
+
+                # 储存用户问题
+                user_message = {"role": "user", "content": "请分析模型结果"}
+                st.session_state.displayed_messages.append(user_message)
 
                 client = OpenAI(
-                   api_key = 'de226819-d548-4b72-aa45-470adb3bd551',
-                   base_url = "https://ark.cn-beijing.volces.com/api/v3",
-                   )
+                    api_key = 'de226819-d548-4b72-aa45-470adb3bd551',
+                    base_url = "https://ark.cn-beijing.volces.com/api/v3",
+                )
 
-                   #调用火山引擎-Doubao-1.5...ion-pro-32k
                 response = client.chat.completions.create(
-                model="ep-20250123135734-mwd8w",
-                messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": message},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": "https://ark-project.tos-cn-beijing.ivolces.com/images/view.jpeg"
+                    model="ep-20250123135734-mwd8w",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": message},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "https://ark-project.tos-cn-beijing.ivolces.com/images/view.jpeg"
+                                    }
+                                },
+                            ],
                         }
-                    },
-                ],
-            }
-        ],
-    )
+                    ],
+                )
 
-   
                 full_response = response.choices[0].message.content
+                assistant_message = {"role": "assistant", "content": full_response}
+                st.session_state.displayed_messages.append(assistant_message)
+                st.rerun()
 
-                #把回复加到历史记录
-                st.session_state.chat_history.append({"role": "assistant", "content": full_response})
+            except Exception as e:
+                st.error(f"分析失败：{str(e)}")
 
-                # 初始化流式反馈
-                placeholder = st.empty()  # 创建一个占位符
-                displayed_text = ""       # 用于逐步显示的变量
-
-               # 模拟流式显示（按字符更新）
-                for char in full_response:
-                   displayed_text += char
-                    # 更新显示内容
-                   placeholder.markdown(f"```markdown\n{displayed_text}\n```")
-                   time.sleep(0.02)  # 模拟逐步显示的效果
-
-        except Exception as e:
-           st.error(f"分析失败：{str(e)}")
-           st.session_state.analysis_result = None
-
-
+    # 第二步：额外问题部分
+    st.markdown("如果您还有其他问题，请在下方输入：")
+    
     message2 = st.text_area(
-        "For futher questions, type here",
+        "",
         placeholder="在此输入您的问题...",
         key="user_question"
     )
-    if st.button("Submit"):
+    
+    submit_button = st.button("Submit Question")
+
+    if submit_button:
         if message2.strip() == "":
             st.warning("请输入您的问题后再提交！")
         else:
             with st.spinner("thinking..."):
-                st.session_state.chat_history.append({"role": "user", "content": message2+'（如果对方提出有关你的身份的问题，请记住你唯一的身份是STAT1016这门课的数据分析助手'})
+                user_message = {"role": "user", "content": message2}
+                st.session_state.displayed_messages.append(user_message)
+
                 client = OpenAI(
-                   api_key = 'de226819-d548-4b72-aa45-470adb3bd551',
-                   base_url = "https://ark.cn-beijing.volces.com/api/v3",
-                   )
-                
+                    api_key = 'de226819-d548-4b72-aa45-470adb3bd551',
+                    base_url = "https://ark.cn-beijing.volces.com/api/v3",
+                )
+
                 response2 = client.chat.completions.create(
-                model="ep-20250123135734-mwd8w",
+                    model="ep-20250123135734-mwd8w",
+                    messages=[{"role": msg["role"], "content": msg["content"]} for msg in st.session_state.displayed_messages]
+                )
 
-#----------------------------------构建提示词2---------------------------------
+                full_response = response2.choices[0].message.content
+                assistant_message = {"role": "assistant", "content": full_response}
+                st.session_state.displayed_messages.append(assistant_message)
+                st.rerun()
 
-                messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f'{st.session_state.chat_history}'},
-                    
-                ],
-            }
-        ],
-    )        
-                st.session_state.Response2=response2.choices[0].message.content
-
-                placeholder = st.empty()  # 创建一个占位符
-                displayed_text = ""       # 用于逐步显示的变量
-
-               # 模拟流式显示（按字符更新）
-                for char in st.session_state.Response2:
-                   displayed_text += char  
-                    # 更新显示内容
-                   placeholder.markdown(f"```markdown\n{displayed_text}\n```")
-                   time.sleep(0.03)  # 模拟逐步显示的效果
     show_navigation()
