@@ -307,11 +307,11 @@ if st.session_state.current_step == 1:
                     
                     with col1:
                         st.write("包含缺失值的行（填充前）")
-                        st.dataframe(missing_rows_before.style.highlight_null(null_color='yellow'), height=300)
+                        st.dataframe(missing_rows_before.style.highlight_null(props='background-color: yellow'), height=300)
                         
                     with col2:
                         st.write("相同行填充后的结果")
-                        st.dataframe(missing_rows_after.style.highlight_null(null_color='yellow'), height=300)
+                        st.dataframe(missing_rows_before.style.highlight_null(props='background-color: yellow'), height=300)
                     
                     # 显示填充的统计信息
                     st.info(f"""
