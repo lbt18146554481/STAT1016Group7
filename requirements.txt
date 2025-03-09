@@ -10,3 +10,5 @@ statsmodels
 xlsxwriter  
 lightgbm
 xgboost
+plotly
+pyod
