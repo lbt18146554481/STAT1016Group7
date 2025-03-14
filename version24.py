@@ -78,7 +78,7 @@ def show_navigation():
                 st.rerun()
     
     with col3:
-        if st.session_state.current_step < 7:
+        if st.session_state.current_step < 8:
             btn_disabled = False
             if st.session_state.current_step == 1:
                 btn_disabled = (st.session_state.processed_data1 is None)
@@ -1484,7 +1484,7 @@ elif st.session_state.current_step == 6:
 #----------------------------------------第六步：预测新数据--------------------------------------------
 #---------------------------------------------------------------------------------------------------
 
-elif st.session_state.current_step == 6:
+elif st.session_state.current_step == 7:
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step6: Model Prediction</h1>', unsafe_allow_html=True)
     
     if not st.session_state.get('model'):
@@ -1537,7 +1537,7 @@ elif st.session_state.current_step == 6:
 #----------------------------------------第七步：数据智能分析-------------------------------------------
 #---------------------------------------------------------------------------------------------------
     
-elif st.session_state.current_step == 7:
+elif st.session_state.current_step == 8:
     st.markdown(
         """
         <script>
