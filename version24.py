@@ -54,7 +54,8 @@ def auto_scroll_to_top():
     '''
     st.markdown(js, unsafe_allow_html=True)
 
-# 导航组件
+#------------------------------------------导航组件---------------------------------------------------
+
 def show_navigation():
     st.markdown("---")
     col1, col2, col3 = st.columns([5, 1, 1])
@@ -73,7 +74,7 @@ def show_navigation():
                 st.session_state.current_step -= 1
                 st.session_state.trained = False
                 st.session_state.show_prediction = False
-                auto_scroll_to_top()
+                auto_scroll_to_top()  # 添加自动滚动
                 st.rerun()
     
     with col3:
@@ -92,7 +93,7 @@ def show_navigation():
                         key=f"next_{st.session_state.current_step}",
                         disabled=btn_disabled):
                 st.session_state.current_step += 1
-                auto_scroll_to_top()
+                auto_scroll_to_top()  # 添加自动滚动
                 st.rerun()
         else:
             if st.button("Restart", key=f"back_{st.session_state.current_step + 1}"):
@@ -100,7 +101,8 @@ def show_navigation():
                 auto_scroll_to_top()
                 st.rerun()
 
-# 初始化会话状态
+#------------------------------------------- 初始化会话状态--------------------------------------------------
+
 if 'current_step' not in st.session_state:
     st.session_state.update({
         'current_step': 0,
@@ -128,9 +130,32 @@ if 'current_step' not in st.session_state:
     })
     auto_scroll_to_top()
 
-# 欢迎页面
+# 在应用开始时添加
+st.markdown(
+    """
+    <style>
+        body {
+            scroll-behavior: smooth;
+        }
+        .main {
+            scroll-behavior: smooth;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ----------------------------------------------欢迎页面---------------------------------------------------
+
 if st.session_state.current_step == 0:
-    auto_scroll_to_top()
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
     st.markdown('<h1 style="font-size:70px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Birth Rate Prediction Machine</h1>', unsafe_allow_html=True)
     
     st.markdown(
@@ -175,7 +200,9 @@ if st.session_state.current_step == 0:
         st.session_state.current_step = 1
         st.rerun()
 
-# 页面配置
+#------------------------------------------步骤一 处理缺失值----------------------------------------------
+#------------------------------------------------------------------------------------------------------
+
 if st.session_state.current_step == 1:
     st.markdown(
         """
@@ -229,6 +256,7 @@ if st.session_state.current_step == 1:
                 with st.spinner("正在处理缺失值..."):
                     # 保存原始数据用于显示
                     original_df = processed_df.copy()
+                    original_missing_rows = original_df[original_df.isnull().any(axis=1)]
                     
                     # 记录填充前的缺失值数量
                     original_missing = processed_df.isnull().sum().sum()
@@ -254,9 +282,23 @@ if st.session_state.current_step == 1:
                     # 然后进行缺失值填充
                     if fill_method == "Delete 删除包含缺失值的行":
                         original_count = len(processed_df)
-                        processed_df = processed_df.dropna()
+                        # 保存要删除的行的数据用于显示
+                        rows_to_delete = processed_df[processed_df.isnull().any(axis=1)].copy()
+                        # 执行删除操作
+                        processed_df = processed_df.dropna().reset_index(drop=True)
                         new_count = len(processed_df)
                         drop_count = original_count - new_count
+                        
+                        # 显示删除的行和保留的行
+                        st.success(f"已删除包含缺失值的{drop_count}行，剩余{new_count}行数据！")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("删除的行（包含缺失值）")
+                            st.dataframe(rows_to_delete.style.highlight_null(props='background-color: yellow'), height=300)
+                        with col2:
+                            st.write("保留的行预览")
+                            st.dataframe(processed_df.head(50).style.highlight_null(props='background-color: yellow'), height=300)
                     else:
                         # 对所有列进行填充
                         if fill_method == "Mean 均值填充":
@@ -311,7 +353,7 @@ if st.session_state.current_step == 1:
                         
                     with col2:
                         st.write("相同行填充后的结果")
-                        st.dataframe(missing_rows_before.style.highlight_null(props='background-color: yellow'), height=300)
+                        st.dataframe(missing_rows_after.style.highlight_null(props='background-color: yellow'), height=300)
                     
                     # 显示填充的统计信息
                     st.info(f"""
@@ -321,17 +363,12 @@ if st.session_state.current_step == 1:
                     """)
 
                 if st.session_state.processed_data1  is not None:
-                    # 创建一个内存缓冲区
                     output = BytesIO()
-        
-                    # 使用 Pandas 的 ExcelWriter 和 xlsxwriter 引擎写入 Excel
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                         st.session_state.processed_data1.to_excel(writer, index=False, sheet_name='Filled_Data')
         
-                   # 获取 Excel 文件的二进制内容
                     processed_excel = output.getvalue()
 
-                  # 添加下载按钮
                     st.download_button(
             label="Download fliied Data as Excel",
             data=processed_excel,
@@ -344,8 +381,8 @@ if st.session_state.current_step == 1:
 
     show_navigation()
 
-#-------------------------------------步骤二 数据编码和标准化---------------------------------
-#------------------------------------------------------------------------------------------
+#--------------------------------------步骤二 数据编码和标准化----------------------------------------------
+#-------------------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 2:
     st.markdown(
@@ -360,7 +397,6 @@ elif st.session_state.current_step == 2:
     
     df = st.session_state.processed_data1
     
-    # 删除 region 和 country 列
     columns_to_drop = ['Region', 'Country']
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
     
@@ -373,10 +409,9 @@ elif st.session_state.current_step == 2:
     
     if st.button("应用转换"):
         with st.spinner("处理中..."):
-            # 保存原始数据用于显示
             original_df = df.copy()
             processed_df = df.copy()
-            
+#--------------------------------------------特征编码-----------------------------------------------
             if encoding_method == "One-Hot 独热编码":
                 encoder = OneHotEncoder(sparse=False)
                 encoded = encoder.fit_transform(processed_df[categorical_cols])
@@ -386,13 +421,13 @@ elif st.session_state.current_step == 2:
                 for col in categorical_cols:
                     le = LabelEncoder()
                     processed_df[col] = le.fit_transform(processed_df[col])
+#--------------------------------------------特征放缩-----------------------------------------------
             if scaling_method != "None 不缩放" and numeric_cols:
                 scaler = StandardScaler() if scaling_method == "Standardize 标准化" else MinMaxScaler()
                 processed_df[numeric_cols] = scaler.fit_transform(processed_df[numeric_cols])
             st.session_state.processed_data2 = processed_df
             st.success("数据处理完成！")
             
-            # 使用两列布局显示结果
             st.subheader("数据处理前后对比")
             col1, col2 = st.columns(2)
             
@@ -409,18 +444,14 @@ elif st.session_state.current_step == 2:
     if st.session_state.processed_data2 is not None:
         st.subheader("Brief View After Preprocessing")
         st.dataframe(st.session_state.processed_data2.head(10), height=150)
-
-        # 创建一个内存缓冲区
+#-------------------------------------------允许用户下载------------------------------------------------
         output = BytesIO()
     
-        # 使用 Pandas 的 ExcelWriter 和 xlsxwriter 引擎写入 Excel
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     st.session_state.processed_data2.to_excel(writer, index=False, sheet_name='Preprocessed_Data')
     
-        # 获取 Excel 文件的二进制内容
         processed_excel = output.getvalue()
 
-        # 添加下载按钮
         st.download_button(
         label="Download Preprocessed Data as Excel",
         data=processed_excel,
@@ -430,8 +461,8 @@ elif st.session_state.current_step == 2:
     
     show_navigation()
 
-#--------------------------------------第三步：训练数据可视化---------------------------------
-#--------------------------------------------------------------------------------------------
+#----------------------------------------第三步：异常值检测------------------------------------------------
+#-------------------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 3:
     st.markdown(
@@ -445,10 +476,9 @@ elif st.session_state.current_step == 3:
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step3: Handle Outliers</h1>', unsafe_allow_html=True)
     
     if st.session_state.processed_data2 is not None:
-        # 异常值检测部分
+       
         st.markdown('<h1 style="font-size:40px; color:gray;">Outlier Detection</h1>', unsafe_allow_html=True)
         
-        # 获取数值类型的列
         numeric_cols = st.session_state.processed_data2.select_dtypes(include=['float64', 'int64']).columns.tolist()
         
         selected_cols = st.multiselect(
@@ -657,7 +687,7 @@ elif st.session_state.current_step == 3:
                     elif outlier_method == "IForest 孤立森林":
                         iforest = IsolationForest(contamination=contamination, random_state=42)
                         iforest.fit(X)
-                        scores = -iforest.score_samples(X)  # 使用score_samples方法并取负值
+                        scores = -iforest.score_samples(X) 
                         outliers = scores > iforest_threshold
                     
                     elif outlier_method == "KNN K最近邻":
@@ -700,7 +730,6 @@ elif st.session_state.current_step == 3:
                             ABOD(n_neighbors=n_neighbors)  # ABOD检测器
                         ]
                         
-                        # 初始化并训练LSCP
                         lscp = LSCP(detector_list)
                         lscp.fit(X)
                         scores = lscp.decision_scores_
@@ -740,17 +769,13 @@ elif st.session_state.current_step == 3:
                 outliers = st.session_state.outliers
                 df_cleaned = df[~outliers]
                 
-                # 保存原始的异常值数据用于显示
                 outliers_df = df[outliers]
                 
-                # 更新处理后的数据
                 st.session_state.processed_data2 = df_cleaned
                 st.session_state.outliers_removed = True
                 
-                # 显示结果
                 st.success(f"已删除 {st.session_state.num_outliers} 个异常值，剩余 {len(df_cleaned)} 行数据！")
                 
-                # 使用两列布局显示结果
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -766,18 +791,13 @@ elif st.session_state.current_step == 3:
                 st.error(f"处理异常值时出错：{str(e)}")
 
             if st.session_state.processed_data2 is not None:
-
-            # 创建一个内存缓冲区
+ #-----------------------------------------允许用户下载------------------------------------------------
              output = BytesIO()
-    
-            # 使用 Pandas 的 ExcelWriter 和 xlsxwriter 引擎写入 Excel
              with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 st.session_state.processed_data2.to_excel(writer, index=False, sheet_name='Filled_Data')
     
-           # 获取 Excel 文件的二进制内容
              processed_excel = output.getvalue()
 
-          # 添加下载按钮
              st.download_button(
     label="Download cleaned Data as Excel",
     data=processed_excel,
@@ -789,8 +809,8 @@ elif st.session_state.current_step == 3:
     
     show_navigation()
 
-#--------------------------------------第四步：训练数据可视化---------------------------------
-#--------------------------------------------------------------------------------------------
+#--------------------------------------第四步：训练数据可视化------------------------------------------
+#--------------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 4:
     st.markdown(
@@ -809,17 +829,15 @@ elif st.session_state.current_step == 4:
         st.stop()
 
     try:
-        # 第一部分：单特征分析
+ #--------------------------------------------单特征分析-----------------------------------------------
         st.markdown('<h1 style="font-size:35px; color:gray;">(1).单特征分析</h1>', unsafe_allow_html=True)
         
-        # 选择要分析的特征
         selected_feature = st.selectbox(
             "选择要分析的特征",
             options=df.columns,
             key="single_feature_analysis"
         )
         
-        # 创建两列布局
         col1, col2 = st.columns(2)
         
         with col1:
@@ -884,11 +902,10 @@ elif st.session_state.current_step == 4:
         })
         st.dataframe(stats_df.style.format({'值': '{:.3f}'}))
 
-        # 第二部分：多特征分析
+#--------------------------------------------多特征分析-----------------------------------------------
         st.markdown("---")
         st.markdown('<h1 style="font-size:35px; color:gray;">(2).多特征分析</h1>', unsafe_allow_html=True)
         
-        # 选择要分析的特征
         selected_features = st.multiselect(
             "选择要分析的特征（建议选择3-6个特征）",
             options=df.columns,
@@ -963,8 +980,8 @@ elif st.session_state.current_step == 4:
                     z=df_pca['PC3'],
                     mode='markers',
                     marker=dict(
-                        size=6,
-                        color=df_pca['PC1'],  # 使用PC1的值作为颜色
+                        size=4,
+                        color=df_pca['PC1'],  
                         colorscale='Viridis',
                         opacity=0.8
                     )
@@ -1011,10 +1028,18 @@ elif st.session_state.current_step == 4:
 
     show_navigation()
 
-#----------------------------------------第五步：模型训练------------------------------------
-#-------------------------------------------------------------------------------------------
+#----------------------------------------第五步：模型训练-----------------------------------------
+#----------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 5:
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step5: Model Training</h1>', unsafe_allow_html=True)
     
     df = st.session_state.processed_data2
@@ -1022,7 +1047,7 @@ elif st.session_state.current_step == 5:
         st.error("数据未加载，请返回上一步")
         st.stop()
 
-    # 添加特征和目标变量选择
+#--------------------------------------------变量选择-----------------------------------------------
     st.markdown('<h1 style="font-size:35px; color:gray;">(1).选择特征和目标变量</h1>', unsafe_allow_html=True)
     
     # 获取所有列名
@@ -1053,7 +1078,7 @@ elif st.session_state.current_step == 5:
 
    
     
-    # 模型训练部分
+  #--------------------------------------------模型选择-----------------------------------------------
     model_type = st.selectbox(
         "Choose Model Type",
         options=[
@@ -1079,7 +1104,7 @@ elif st.session_state.current_step == 5:
 
     tuning_enabled = st.checkbox("手动调参")
     auto_tuning = st.checkbox("自动调参（网格搜索）") if not tuning_enabled else False
-
+    #允许手动调参
     if tuning_enabled:
         if model_type == "DecisionTree 决策树":
             max_depth = st.slider("Max Depth", 1, 50, 3)
@@ -1322,17 +1347,25 @@ elif st.session_state.current_step == 5:
                 st.error(f"训练失败：{str(e)}")
     show_navigation()
 
-#----------------------------------------第六步：模型性能可视化------------------------------------
-#-------------------------------------------------------------------------------------------
+#----------------------------------------第六步：模型性能可视化-----------------------------------------
+#---------------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 6:
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step6: Model Performance</h1>', unsafe_allow_html=True)
     
     if not st.session_state.get('model'):
         st.error("模型未训练，请返回第五步")
         st.stop()
     
-    #模型性能
+#--------------------------------------------展示性能数据-----------------------------------------------
     st.markdown('<h1 style="font-size:40px; color:gray;">(1).Evaluate Model Performance</h1>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     col1.metric("MAE", f"{st.session_state.metrics['MAE']:.2f}")
@@ -1355,7 +1388,7 @@ elif st.session_state.current_step == 6:
     )
     st.write("")
     
-    #画图
+    #--------------------------------------------画图-----------------------------------------------
     st.markdown('<h1 style="font-size:40px; color:gray;">(2).Visualization</h1>', unsafe_allow_html=True)
     try:
         fig1, ax1 = plt.subplots(figsize=(10, 5))
@@ -1448,8 +1481,8 @@ elif st.session_state.current_step == 6:
     
     show_navigation()
 
-#----------------------------------------第六步：预测新数据------------------------------------
-#-------------------------------------------------------------------------------------------
+#----------------------------------------第六步：预测新数据--------------------------------------------
+#---------------------------------------------------------------------------------------------------
 
 elif st.session_state.current_step == 6:
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step6: Model Prediction</h1>', unsafe_allow_html=True)
@@ -1501,10 +1534,18 @@ elif st.session_state.current_step == 6:
     st.session_state.n0 = n0
     
 
-#----------------------------------------第七步：数据智能分析-------------------------------------
-#---------------------------------------------------------------------------------------------
+#----------------------------------------第七步：数据智能分析-------------------------------------------
+#---------------------------------------------------------------------------------------------------
     
 elif st.session_state.current_step == 7:
+    st.markdown(
+        """
+        <script>
+            window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
     st.markdown('<h1 style="font-size:55px; background: linear-gradient(45deg, #663399, #9370DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Step7: Data Analysis</h1>', unsafe_allow_html=True)
     
     # 初始化对话历史记录
@@ -1562,7 +1603,7 @@ elif st.session_state.current_step == 7:
                             time.sleep(0.02)
                     st.markdown("---")
 
-    # 第一步：模型分析部分
+#--------------------------------------------模型性能分析-----------------------------------------------
     st.markdown("### Step 1: Model Analysis")
     analyze_button = st.button("Analyze Model")
 
@@ -1648,7 +1689,7 @@ elif st.session_state.current_step == 7:
             except Exception as e:
                 st.error(f"分析失败：{str(e)}")
 
-    # 第二步：额外问题部分
+  #--------------------------------------------其他问题-----------------------------------------------
     st.markdown("### Step 2: Additional Questions")
     st.markdown("如果您还有其他问题，请在下方输入：")
     
